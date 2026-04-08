@@ -55,7 +55,7 @@ parser.add_argument('--load_ckpt_path', type=str, required=False)
 parser.add_argument('--frame_dur', type=float, required=False)
 parser.add_argument('--context_dur', type=float, required=False)
 parser.add_argument('--delay_dur', type=float, required=False)
-parser.add_argument('-L', type=int, required=False, default=20)
+parser.add_argument('-L', type=int, required=False, default=80)
 parser.add_argument('--stride', type=int, required=False, default=10)
 parser.add_argument('-N', type=int, required=False, default=128)
 parser.add_argument('-H', type=int, required=False, default=128)
@@ -225,7 +225,7 @@ def start_func():
         train_dataloader = DataLoader(train_dataset,
                                 batch_size=config.batch_size,
                                 shuffle=shuffle,
-                                num_workers=8,
+                                num_workers=0,
                                 collate_fn=collate_fn,
                                 worker_init_fn=worker_init_fn,
                                 pin_memory=True)
@@ -257,7 +257,7 @@ def start_func():
         valid_dataloader = DataLoader(valid_dataset,
                                 batch_size=config.batch_size,
                                 shuffle=False,
-                                num_workers=8,
+                                num_workers=0,
                                 worker_init_fn=worker_init_fn,
                                 pin_memory=True)
     
@@ -272,7 +272,7 @@ def start_func():
     test_dataloader = DataLoader(test_dataset,
                             batch_size=None,
                             shuffle=False,
-                            num_workers=8)
+                            num_workers=0)
 
 
     if args.test_ckpt_path is None:

@@ -24,6 +24,8 @@ def get_neuro(type, **kwargs):
         return PLIFNode(**kwargs)
     elif type == "alif":
         return ALIFNode(**kwargs)
+    elif type == "rhythm_alif":
+        return RhythmALIFNode(**kwargs)
 
 
 def multi_normal_initilization(param, means, stds):
@@ -361,6 +363,147 @@ class ALIFNode(torch.nn.Module):
             self.spike = act_fun_adp(self.mem - theta)
             # print(f"self.spike shape: {self.spike.shape}")
         
+        return self.spike, self.mem
+def create_general_mask(
+    dim: int,
+    c_min: float = 4,
+    c_max: float = 8,
+    min_dc: float = 0.1,
+    max_dc: float = 0.9,
+    phase_shift_max: float = 0.5,
+    T: int = 256,
+):
+    """
+    Build a neuron-wise periodic ON/OFF mask of shape [dim, T].
+    Each neuron gets its own cycle, duty cycle, and phase shift.
+    """
+    mask = []
+
+    cycles = torch.randint(low=int(c_min), high=int(c_max) + 1, size=(dim,))
+    duty_cycles = torch.empty(dim).uniform_(min_dc, max_dc)
+    phase_fracs = torch.empty(dim).uniform_(0.0, phase_shift_max)
+
+    for cycle, dc, phase_frac in zip(cycles, duty_cycles, phase_fracs):
+        cycle = int(cycle.item())
+
+        on_length = int(round(float(dc.item()) * cycle))
+        on_length = max(1, min(on_length, cycle))
+        off_length = cycle - on_length
+
+        pattern = [1.0] * on_length + [0.0] * off_length
+
+        # phase is a fraction of one cycle, as in the paper
+        phase_shift = int(round(float(phase_frac.item()) * cycle)) % cycle
+        if phase_shift > 0:
+            pattern = pattern[-phase_shift:] + pattern[:-phase_shift]
+
+        full_pattern = pattern * (T // cycle) + pattern[: T % cycle]
+        mask.append(full_pattern)
+
+    return torch.tensor(mask, dtype=torch.float32)
+
+
+class RhythmALIFNode(ALIFNode):
+    def __init__(
+        self,
+        input_dim,
+        beta=0.184,
+        b_j0=1.6,
+        R_m=1.0,
+        tau_m=20,
+        tau_m_initial_std=5,
+        tau_adp_initial=200,
+        tau_adp_initial_std=50,
+        tau_initializer='normal',
+        dt=1,
+        liquid=False,
+        no_spiking=False,
+        cycle_min=4,
+        cycle_max=8,
+        duty_cycle_min=0.1,
+        duty_cycle_max=0.9,
+        phase_max=0.5,
+        time_window=256,
+    ):
+        super().__init__(
+            input_dim=input_dim,
+            beta=beta,
+            b_j0=b_j0,
+            R_m=R_m,
+            tau_m=tau_m,
+            tau_m_initial_std=tau_m_initial_std,
+            tau_adp_initial=tau_adp_initial,
+            tau_adp_initial_std=tau_adp_initial_std,
+            tau_initializer=tau_initializer,
+            dt=dt,
+            liquid=liquid,
+            no_spiking=no_spiking,
+        )
+
+        self.input_dim = input_dim
+        self.time_window = time_window
+        self.cycle_min = cycle_min
+        self.cycle_max = cycle_max
+        self.duty_cycle_min = duty_cycle_min
+        self.duty_cycle_max = duty_cycle_max
+        self.phase_max = phase_max
+
+        mask = create_general_mask(
+            dim=input_dim,
+            c_min=cycle_min,
+            c_max=cycle_max,
+            min_dc=duty_cycle_min,
+            max_dc=duty_cycle_max,
+            phase_shift_max=phase_max,
+            T=time_window,
+        )
+        self.register_buffer("mask", mask)
+
+    def forward(self, x, step):
+        if step == 0:
+            if self.neuro_states_init is False:
+                self.init_neuro_states(x)
+            else:
+                self.neuro_states_init = False
+
+        # wrap around if sequence is longer than stored mask horizon
+        step_idx = int(step % self.time_window)
+
+        # shape: [batch, input_dim]
+        mask_t = self.mask[:, step_idx].unsqueeze(0).expand(x.size(0), -1).to(x.device)
+
+        if self.liquid:
+            if self.no_spiking:
+                x = self.dense_input(x)
+            else:
+                x = self.dense_input(x) + self.dense_spike(self.spike)
+            alpha = torch.sigmoid(self.dense_tau_m(torch.cat((x, self.mem), dim=-1)))
+        else:
+            alpha = self.alpha.sigmoid()
+
+        # save previous membrane so OFF neurons can be frozen
+        prev_mem = self.mem
+
+        if self.no_spiking:
+            cand_mem = self.mem * alpha + (1 - alpha) * self.R_m * x
+            self.mem = torch.where(mask_t > 0, cand_mem, prev_mem)
+            self.spike = None
+        else:
+            if self.liquid:
+                ro = torch.sigmoid(self.dense_tau_adp(torch.cat((x, self.eta), dim=-1)))
+            else:
+                ro = self.ro.sigmoid()
+
+            # keep adaptation update same as ALIF
+            self.eta = ro * self.eta + (1 - ro) * self.spike
+            theta = self.b_0 + self.beta * self.eta
+
+            cand_mem = self.mem * alpha + (1 - alpha) * self.R_m * x - theta * self.spike * self.dt
+            self.mem = torch.where(mask_t > 0, cand_mem, prev_mem)
+
+            cand_spike = act_fun_adp(self.mem - theta)
+            self.spike = cand_spike * mask_t
+
         return self.spike, self.mem
 
 

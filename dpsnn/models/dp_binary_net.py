@@ -186,7 +186,15 @@ class StreamSpikeNet(pl.LightningModule):
         blocks = []
         for _ in range(self.X):
             sconv1d = SpikeConv1d(B, H, self.context_step, "plif", self.plif_config)
-            srnn = SRNN(H, B, "alif", self.alif_config)
+            srnn = SRNN(H, B, "rhythm_alif", {
+    **self.alif_config,
+    "cycle_min": 12,
+    "cycle_max": 24,
+    "duty_cycle_min": 0.4,
+    "duty_cycle_max": 0.7,
+    "phase_max": 0.5,
+    "time_window": self.time_steps,
+})
             blocks.append(nn.ModuleList([sconv1d, srnn]))
         self.repeats = nn.ModuleList(blocks)
         
