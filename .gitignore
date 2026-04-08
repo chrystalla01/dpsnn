@@ -1,0 +1,6 @@
+voicebank/
+audio_demos/
+lightning_logs/
+lightning_logs_*/
+egs/voicebank/*.ckpt
+voicebank/results/
