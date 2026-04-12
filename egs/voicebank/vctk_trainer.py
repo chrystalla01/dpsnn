@@ -257,7 +257,7 @@ def start_func():
         valid_dataloader = DataLoader(valid_dataset,
                                 batch_size=config.batch_size,
                                 shuffle=False,
-                                num_workers=2,
+                                num_workers=0,
                                 worker_init_fn=worker_init_fn,
                                 pin_memory=True)
     
@@ -272,7 +272,7 @@ def start_func():
     test_dataloader = DataLoader(test_dataset,
                             batch_size=None,
                             shuffle=False,
-                            num_workers=2)
+                            num_workers=0)
 
 
     if args.test_ckpt_path is None:
@@ -514,9 +514,8 @@ def start_func():
                                           save_last=config.checkpoint.save_last,
                                           filename=config.checkpoint.filename)
     trainer = pl.Trainer(callbacks=[checkpoint_callback, test_callback], **config.trainer)
-    assert((not args.load_ckpt_path) and (not args.test_ckpt_path), 
-           f"Please make sure not to set load_ckpt_path and test_ckpt_path together!")
-
+    assert not (args.load_ckpt_path and args.test_ckpt_path), \
+    "Please make sure not to set load_ckpt_path and test_ckpt_path together!"
     spike_net = StreamSpikeNet(input_dim, context_dim,
                         sr=config.sample_rate, 
                         L=args.L, stride=args.stride,
@@ -545,10 +544,10 @@ def start_func():
         rank_print(f"training ends at: {time.asctime(time.localtime(end))}, time elapsed {(end-start)/60:.2f} min")
         
         rank_print(f"\n\ntesting with best:")
-       # trainer.test(spike_net, ckpt_path="best", dataloaders=test_dataloader)
+        trainer.test(spike_net, ckpt_path="best", dataloaders=test_dataloader)
         
-        # rank_print(f"\n\ntesting with last:")
-        # trainer.test(spike_net, ckpt_path="last", dataloaders=test_dataloader)
+        rank_print(f"\n\ntesting with last:")
+        trainer.test(spike_net, ckpt_path="last", dataloaders=test_dataloader)
     else:  # testing
         test_ckpt_path = os.path.join(script_dir, args.test_ckpt_path)
         rank_print(f"test_ckpt_path: {test_ckpt_path}")
