@@ -57,9 +57,9 @@ parser.add_argument('--context_dur', type=float, required=False)
 parser.add_argument('--delay_dur', type=float, required=False)
 parser.add_argument('-L', type=int, required=False, default=80)
 parser.add_argument('--stride', type=int, required=False, default=10)
-parser.add_argument('-N', type=int, required=False, default=128)
-parser.add_argument('-H', type=int, required=False, default=128)
-parser.add_argument('-B', type=int, required=False, default=128)
+parser.add_argument('-N', type=int, required=False, default=256)
+parser.add_argument('-H', type=int, required=False, default=256)
+parser.add_argument('-B', type=int, required=False, default=256)
 parser.add_argument('-K', type=int, required=False, default=100)
 parser.add_argument('--alpha', type=float, required=False, default=0.5)
 parser.add_argument('--beta', type=float, required=False, default=0.5)
@@ -225,7 +225,7 @@ def start_func():
         train_dataloader = DataLoader(train_dataset,
                                 batch_size=config.batch_size,
                                 shuffle=shuffle,
-                                num_workers=0,
+                                num_workers=2,
                                 collate_fn=collate_fn,
                                 worker_init_fn=worker_init_fn,
                                 pin_memory=True)
@@ -247,7 +247,7 @@ def start_func():
         #                         worker_init_fn=worker_init_fn,
         #                         drop_last=True)
         valid_dataset = ContextSepDataset(
-            hdf_file=config.hdf5_test,
+            hdf_file=config.hdf5_valid,
             frame_dur=config.frame_dur,
             sr=config.sample_rate,
             channels=1,
@@ -514,8 +514,8 @@ def start_func():
                                           save_last=config.checkpoint.save_last,
                                           filename=config.checkpoint.filename)
     trainer = pl.Trainer(callbacks=[checkpoint_callback, test_callback], **config.trainer)
-    assert((not args.load_ckpt_path) and (not args.test_ckpt_path), 
-           f"Please make sure not to set load_ckpt_path and test_ckpt_path together!")
+    assert not (args.load_ckpt_path and args.test_ckpt_path), \
+    "Please make sure not to set load_ckpt_path and test_ckpt_path together!"
 
     spike_net = StreamSpikeNet(input_dim, context_dim,
                         sr=config.sample_rate, 

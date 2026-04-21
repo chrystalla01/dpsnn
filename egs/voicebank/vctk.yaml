@@ -24,7 +24,7 @@ hdf5_valid: ${save_folder}/valid.hdf5
 
 basic_loss: MSE # MSE, SM, RI, PCM, or SISDR
 number_of_epochs: 150
-batch_size: 256 # TIMIT
+batch_size: 64 # TIMIT
 lr: 0.0001
 weight_decay: 0.001
 sample_rate: 16000
@@ -35,7 +35,7 @@ max_frames: 5
 num_workers: 1
 
 trainer:
-  max_epochs: 20
+  max_epochs: 10
 #  max_steps: null # computed at runtime if not set
   num_nodes: 1
   #strategy: ddp_find_unused_parameters_true  #ddp
@@ -59,6 +59,6 @@ EarlyStopping:
 
 optim:
     name: adam
-    lr: 1e-2
+    lr: 5e-3
     T_max: 64
     

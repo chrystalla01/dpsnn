@@ -146,9 +146,21 @@ class SpikeConv1d(nn.Module):
 
 class StreamSpikeNet(pl.LightningModule):
     plif_config = {"init_tau":2.0}
-    alif_config = {"tau_initializer": "multi_normal",
-                "tau_m": [15, 20], "tau_m_initial_std": [5, 5],
-                "tau_adp_initial": [200], "tau_adp_initial_std": [50]}
+    alif_config = {
+    "tau_initializer": "multi_normal",
+    "tau_m": [15, 20], "tau_m_initial_std": [5, 5],
+    "tau_adp_initial": [200], "tau_adp_initial_std": [50]
+}
+
+    rhythm_alif_config = {
+        "tau_initializer": "normal",
+        "tau_m": 20,
+        "tau_m_initial_std": 5,
+        "tau_adp_initial": 700,
+        "tau_adp_initial_std": 25,
+        "beta": 1.8,
+        "b_j0": 0.01
+    }
     
     def __init__(self, input_dim, context_dim, sr=16000,
                  L=20, stride=10, 
@@ -187,7 +199,7 @@ class StreamSpikeNet(pl.LightningModule):
         for _ in range(self.X):
             sconv1d = SpikeConv1d(B, H, self.context_step, "plif", self.plif_config)
             srnn = SRNN(H, B, "rhythm_alif", {
-    **self.alif_config,
+    **self.rhythm_alif_config,
     "cycle_min": 12,
     "cycle_max": 24,
     "duty_cycle_min": 0.4,
