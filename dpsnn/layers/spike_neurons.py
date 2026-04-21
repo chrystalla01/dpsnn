@@ -367,7 +367,7 @@ class ALIFNode(torch.nn.Module):
         
         return self.spike, self.mem
     
-    """"
+    
 def create_general_mask(
     dim: int,
     c_min: float = 4,
@@ -406,7 +406,7 @@ def create_general_mask(
 
     return torch.tensor(mask, dtype=torch.float32)
 
-
+""""
 class RhythmALIFNode(ALIFNode):
     def __init__(
         self,
@@ -716,6 +716,7 @@ class PLIFNode(BaseNode):
 
     def tau(self):
         return 1 / self.w.data.sigmoid().item()
+    
 class RhythmPLIFNode(PLIFNode):
     def __init__(
         self,

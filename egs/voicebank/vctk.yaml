@@ -35,7 +35,7 @@ max_frames: 5
 num_workers: 1
 
 trainer:
-  max_epochs: 20
+  max_epochs: 10
 #  max_steps: null # computed at runtime if not set
   num_nodes: 1
   #strategy: ddp_find_unused_parameters_true  #ddp

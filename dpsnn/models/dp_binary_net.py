@@ -145,27 +145,26 @@ class SpikeConv1d(nn.Module):
 
 
 class StreamSpikeNet(pl.LightningModule):
-    plif_config = {"init_tau":2.0}
-    class StreamSpikeNet(pl.LightningModule):
-        plif_config = {"init_tau": 2.0}
+  
+    plif_config = {"init_tau": 2.0}
 
-        rhythm_plif_config = {
-            "init_tau": 2.0,
-            "cycle_min": 12,
-            "cycle_max": 24,
-            "duty_cycle_min": 0.5,
-            "duty_cycle_max": 0.8,
-            "phase_max": 0.5,
-        }
+    rhythm_plif_config = {
+        "init_tau": 2.0,
+        "cycle_min": 12,
+        "cycle_max": 24,
+        "duty_cycle_min": 0.5,
+        "duty_cycle_max": 0.8,
+        "phase_max": 0.5,
+    }
 
-        alif_config = {
-            "tau_initializer": "multi_normal",
-            "tau_m": [15, 20],
-            "tau_m_initial_std": [5, 5],
-            "tau_adp_initial": [200],
-            "tau_adp_initial_std": [50]
-        }
-    
+    alif_config = {
+        "tau_initializer": "multi_normal",
+        "tau_m": [15, 20],
+        "tau_m_initial_std": [5, 5],
+        "tau_adp_initial": [200],
+        "tau_adp_initial_std": [50]
+    }
+
     def __init__(self, input_dim, context_dim, sr=16000,
                  L=20, stride=10, 
                  N=512, B=256, H=256, X=1,
@@ -211,8 +210,8 @@ class StreamSpikeNet(pl.LightningModule):
                     "input_dim": H,
                     "cycle_min": 12,
                     "cycle_max": 24,
-                    "duty_cycle_min": 0.5,
-                    "duty_cycle_max": 0.8,
+                    "duty_cycle_min": 0.4,
+                    "duty_cycle_max": 0.7,
                     "phase_max": 0.5,
                     "time_window": self.time_steps,
                 },
