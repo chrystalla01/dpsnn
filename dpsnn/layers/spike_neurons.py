@@ -778,11 +778,22 @@ class RhythmPLIFNode(PLIFNode):
                 self.init_neuro_states(dv)
             else:
                 self.neuro_states_init = False
+        
+        assert dv.size(1) == self.mask.size(0), \
+        f"Mask dim {self.mask.size(0)} != channel dim {dv.size(1)}"
 
         step_idx = int(time_step % self.time_window)
+        base_mask = self.mask[:, step_idx]
 
-        # shape: [batch, neurons]
-        mask_t = self.mask[:, step_idx].unsqueeze(0).expand(dv.size(0), -1).to(dv.device)
+        # Match mask shape to dv shape
+        if dv.dim() == 2:
+            # [B, H]
+            mask_t = base_mask.unsqueeze(0).expand(dv.size(0), -1).to(dv.device)
+        elif dv.dim() == 3:
+            # [B, H, T_local] or [B, H, 1]
+            mask_t = base_mask.unsqueeze(0).unsqueeze(-1).expand(dv.size(0), -1, dv.size(2)).to(dv.device)
+        else:
+            raise RuntimeError(f"Unsupported dv shape: {dv.shape}")
 
         if self.liquid:
             self.w = self.dense_w(torch.cat((dv, self.v), dim=-1))
@@ -841,5 +852,3 @@ class RhythmPLIFNode(PLIFNode):
 
         self.s = spike
         return self.s, self.v
-    # def extra_repr(self):
-    #     return f'v_threshold={self.v_threshold}, v_reset={self.v_reset}, tau={self.tau()}'

@@ -150,10 +150,10 @@ class StreamSpikeNet(pl.LightningModule):
 
     rhythm_plif_config = {
         "init_tau": 2.0,
-        "cycle_min": 12,
-        "cycle_max": 24,
-        "duty_cycle_min": 0.5,
-        "duty_cycle_max": 0.8,
+        "cycle_min": 16,
+        "cycle_max": 32,
+        "duty_cycle_min": 0.6,
+        "duty_cycle_max": 0.9,
         "phase_max": 0.5,
     }
 
