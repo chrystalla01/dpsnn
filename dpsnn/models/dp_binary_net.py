@@ -146,9 +146,25 @@ class SpikeConv1d(nn.Module):
 
 class StreamSpikeNet(pl.LightningModule):
     plif_config = {"init_tau":2.0}
-    alif_config = {"tau_initializer": "multi_normal",
-                "tau_m": [15, 20], "tau_m_initial_std": [5, 5],
-                "tau_adp_initial": [200], "tau_adp_initial_std": [50]}
+    class StreamSpikeNet(pl.LightningModule):
+        plif_config = {"init_tau": 2.0}
+
+        rhythm_plif_config = {
+            "init_tau": 2.0,
+            "cycle_min": 12,
+            "cycle_max": 24,
+            "duty_cycle_min": 0.5,
+            "duty_cycle_max": 0.8,
+            "phase_max": 0.5,
+        }
+
+        alif_config = {
+            "tau_initializer": "multi_normal",
+            "tau_m": [15, 20],
+            "tau_m_initial_std": [5, 5],
+            "tau_adp_initial": [200],
+            "tau_adp_initial_std": [50]
+        }
     
     def __init__(self, input_dim, context_dim, sr=16000,
                  L=20, stride=10, 
@@ -185,17 +201,27 @@ class StreamSpikeNet(pl.LightningModule):
 
         blocks = []
         for _ in range(self.X):
-            sconv1d = SpikeConv1d(B, H, self.context_step, "plif", self.plif_config)
-            srnn = SRNN(H, B, "rhythm_alif", {
-    **self.alif_config,
-    "cycle_min": 12,
-    "cycle_max": 24,
-    "duty_cycle_min": 0.4,
-    "duty_cycle_max": 0.7,
-    "phase_max": 0.5,
-    "time_window": self.time_steps,
-})
+            sconv1d = SpikeConv1d(
+                B,
+                H,
+                self.context_step,
+                "rhythm_plif",
+                {
+                    "init_tau": 2.0,
+                    "input_dim": H,
+                    "cycle_min": 12,
+                    "cycle_max": 24,
+                    "duty_cycle_min": 0.5,
+                    "duty_cycle_max": 0.8,
+                    "phase_max": 0.5,
+                    "time_window": self.time_steps,
+                },
+            )
+
+            srnn = SRNN(H, B, "alif", self.alif_config)
+
             blocks.append(nn.ModuleList([sconv1d, srnn]))
+
         self.repeats = nn.ModuleList(blocks)
         
         self.srnn_readout = ReadoutLayer(self.X*B, B, "alif", self.alif_config)

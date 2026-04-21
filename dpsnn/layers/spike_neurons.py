@@ -24,8 +24,10 @@ def get_neuro(type, **kwargs):
         return PLIFNode(**kwargs)
     elif type == "alif":
         return ALIFNode(**kwargs)
-    elif type == "rhythm_alif":
-        return RhythmALIFNode(**kwargs)
+    elif type =="rhythm_plif":
+        return RhythmPLIFNode(**kwargs)
+   # elif type == "rhythm_alif":
+    #    return RhythmALIFNode(**kwargs)
 
 
 def multi_normal_initilization(param, means, stds):
@@ -364,6 +366,8 @@ class ALIFNode(torch.nn.Module):
             # print(f"self.spike shape: {self.spike.shape}")
         
         return self.spike, self.mem
+    
+    """"
 def create_general_mask(
     dim: int,
     c_min: float = 4,
@@ -374,8 +378,8 @@ def create_general_mask(
     T: int = 256,
 ):
     """
-    Build a neuron-wise periodic ON/OFF mask of shape [dim, T].
-    Each neuron gets its own cycle, duty cycle, and phase shift.
+   # Build a neuron-wise periodic ON/OFF mask of shape [dim, T].
+   # Each neuron gets its own cycle, duty cycle, and phase shift.
     """
     mask = []
 
@@ -506,7 +510,7 @@ class RhythmALIFNode(ALIFNode):
 
         return self.spike, self.mem
 
-
+"""""
 class BaseNode(torch.nn.Module):
     def __init__(self, v_threshold=1.0, v_reset=0.0, surrogate_function=None, detach_reset=False, monitor_state=False):
         '''
@@ -712,6 +716,129 @@ class PLIFNode(BaseNode):
 
     def tau(self):
         return 1 / self.w.data.sigmoid().item()
+class RhythmPLIFNode(PLIFNode):
+    def __init__(
+        self,
+        init_tau=2.0,
+        v_threshold=1.0,
+        v_reset=0.0,
+        detach_reset=True,
+        surrogate_function=surrogate.ATan(),
+        monitor_state=False,
+        liquid=False,
+        input_dim=0,
+        no_spiking=False,
+        cycle_min=4,
+        cycle_max=8,
+        duty_cycle_min=0.1,
+        duty_cycle_max=0.9,
+        phase_max=0.5,
+        time_window=256,
+    ):
+        super().__init__(
+            init_tau=init_tau,
+            v_threshold=v_threshold,
+            v_reset=v_reset,
+            detach_reset=detach_reset,
+            surrogate_function=surrogate_function,
+            monitor_state=monitor_state,
+            liquid=liquid,
+            input_dim=input_dim,
+            no_spiking=no_spiking,
+        )
 
+        self.input_dim = input_dim
+        self.time_window = time_window
+        self.cycle_min = cycle_min
+        self.cycle_max = cycle_max
+        self.duty_cycle_min = duty_cycle_min
+        self.duty_cycle_max = duty_cycle_max
+        self.phase_max = phase_max
+
+        mask = create_general_mask(
+            dim=input_dim,
+            c_min=cycle_min,
+            c_max=cycle_max,
+            min_dc=duty_cycle_min,
+            max_dc=duty_cycle_max,
+            phase_shift_max=phase_max,
+            T=time_window,
+        )
+        self.register_buffer("mask", mask)
+
+    def forward(self, dv: torch.Tensor, time_step):
+        """
+        Rhythm-gated PLIF:
+        - OFF: membrane frozen, spike forced to 0
+        - ON: normal PLIF dynamics
+        """
+        if time_step == 0:
+            if self.neuro_states_init == False:
+                self.init_neuro_states(dv)
+            else:
+                self.neuro_states_init = False
+
+        step_idx = int(time_step % self.time_window)
+
+        # shape: [batch, neurons]
+        mask_t = self.mask[:, step_idx].unsqueeze(0).expand(dv.size(0), -1).to(dv.device)
+
+        if self.liquid:
+            self.w = self.dense_w(torch.cat((dv, self.v), dim=-1))
+
+        alpha = self.w.sigmoid()
+        prev_v = self.v
+
+        # candidate PLIF membrane update
+        if self.v_reset is None:
+            cand_v = self.v + (dv - self.v) * alpha
+        else:
+            cand_v = self.v + (dv - (self.v - self.v_reset)) * alpha
+
+        # freeze membrane during OFF steps
+        self.v = torch.where(mask_t > 0, cand_v, prev_v)
+
+        if self.no_spiking:
+            self.s = None
+            return self.s, self.v
+
+        # compute candidate spike from masked membrane
+        spike = self.surrogate_function(self.v - self.v_threshold)
+
+        # force spike to zero during OFF steps
+        spike = spike * mask_t
+
+        if self.monitor:
+            if len(self.monitor['v']) == 0:
+                if self.v_reset is None:
+                    self.monitor['v'].append(self.v.data.cpu().numpy().copy() * 0)
+                else:
+                    self.monitor['v'].append(self.v.data.cpu().numpy().copy() * self.v_reset)
+
+            self.monitor['v'].append(self.v.data.cpu().numpy().copy())
+            self.monitor['s'].append(spike.data.cpu().numpy().copy())
+
+        # reset using masked spike only
+        if self.detach_reset:
+            spike_d = spike.detach()
+        else:
+            spike_d = spike
+
+        if self.v_reset is None:
+            if self.surrogate_function.spiking:
+                self.v = soft_voltage_transform(self.v, spike_d, self.v_threshold)
+            else:
+                self.v = self.v - spike_d * self.v_threshold
+        else:
+            if self.surrogate_function.spiking:
+                self.v = hard_voltage_transform(self.v, spike_d, self.v_reset)
+            else:
+                self.v = self.v * (1 - spike_d) + self.v_reset * spike_d
+
+        if self.monitor:
+            self.monitor['v'].append(self.v.data.cpu().numpy().copy())
+
+        self.s = spike
+        return self.s, self.v
     # def extra_repr(self):
     #     return f'v_threshold={self.v_threshold}, v_reset={self.v_reset}, tau={self.tau()}'
