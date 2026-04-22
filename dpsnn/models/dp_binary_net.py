@@ -10,7 +10,7 @@ from pytorch_lightning.utilities import rank_zero_info
 
 from ..layers.spike_neuron import act_fun_adp
 from ..layers.sdr import singlesrc_neg_sisdr
-from ..layers.spike_neurons import get_neuro
+from ..layers.spike_neurons import get_neuro, collect_rhythm_stats, rhythm_duty_cycle_regularization
 from ..layers.srnn import SRNN, ReadoutLayer
 
 
@@ -193,7 +193,9 @@ class StreamSpikeNet(pl.LightningModule):
     "duty_cycle_min": 0.4,
     "duty_cycle_max": 0.7,
     "phase_max": 0.5,
-    "time_window": self.time_steps,
+    "gate_sharpness": 10.0,
+    "hard_gate": False,
+    "freeze_eta_with_gate": False,
 })
             blocks.append(nn.ModuleList([sconv1d, srnn]))
         self.repeats = nn.ModuleList(blocks)
@@ -331,7 +333,8 @@ class StreamSpikeNet(pl.LightningModule):
 
         loss = 0.001 * mse_loss + 100 + sisnr_loss + 0.001 * proj_loss + 0.001 * readout_loss
         # loss = 0.001 * mse_loss + 100 + sisnr_loss
-        
+
+        loss = loss + rhythm_duty_cycle_regularization(self, target=0.3, weight=1e-2)
         gradient_norm = self.compute_gradient_norm()
 
         # Logging to TensorBoard by default
@@ -343,7 +346,13 @@ class StreamSpikeNet(pl.LightningModule):
         self.log("sisnr", sisnr_loss, prog_bar=True, sync_dist=True, batch_size=batch_size)
         # self.log("mse_loss", mse_loss, prog_bar=True, sync_dist=True)
         self.log("lr", self.lr_schedulers().get_last_lr()[0], prog_bar=True, sync_dist=True)
-
+        
+        stats = collect_rhythm_stats(self)
+        for k, v in stats.items():
+            self.log(k, v, on_step=False, on_epoch=True, prog_bar=False, sync_dist=True, batch_size=1)
+        if batch_idx == 0:
+            rank_zero_info(f"rhythm stats epoch {self.current_epoch}: {stats}")
+        
         if batch_idx % 500 == 0:
             
             # sisnr = singlesrc_neg_sisdr(out, y).mean()

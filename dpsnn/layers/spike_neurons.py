@@ -7,7 +7,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 
-
 from .accelerating import soft_voltage_transform, hard_voltage_transform
 from .spike_neuron import act_fun_adp
 from .spike_activations import get_activation
@@ -364,46 +363,54 @@ class ALIFNode(torch.nn.Module):
             # print(f"self.spike shape: {self.spike.shape}")
         
         return self.spike, self.mem
-def create_general_mask(
+
+
+def create_cycle_phase_buffers(
     dim: int,
     c_min: float = 4,
     c_max: float = 8,
-    min_dc: float = 0.1,
-    max_dc: float = 0.9,
     phase_shift_max: float = 0.5,
-    T: int = 256,
 ):
     """
-    Build a neuron-wise periodic ON/OFF mask of shape [dim, T].
-    Each neuron gets its own cycle, duty cycle, and phase shift.
+    Create fixed per-neuron rhythm parameters.
+
+    Returns:
+        cycles: [dim] float tensor with integer-valued cycle lengths
+        phases: [dim] float tensor with phase offsets in radians
+
+    Notes:
+    - cycle is fixed per neuron
+    - phase is fixed per neuron
+    - duty cycle is learned indirectly through a threshold parameter
     """
-    mask = []
+    cycles = torch.randint(
+        low=int(c_min),
+        high=int(c_max) + 1,
+        size=(dim,),
+    ).float()
 
-    cycles = torch.randint(low=int(c_min), high=int(c_max) + 1, size=(dim,))
-    duty_cycles = torch.empty(dim).uniform_(min_dc, max_dc)
-    phase_fracs = torch.empty(dim).uniform_(0.0, phase_shift_max)
-
-    for cycle, dc, phase_frac in zip(cycles, duty_cycles, phase_fracs):
-        cycle = int(cycle.item())
-
-        on_length = int(round(float(dc.item()) * cycle))
-        on_length = max(1, min(on_length, cycle))
-        off_length = cycle - on_length
-
-        pattern = [1.0] * on_length + [0.0] * off_length
-
-        # phase is a fraction of one cycle, as in the paper
-        phase_shift = int(round(float(phase_frac.item()) * cycle)) % cycle
-        if phase_shift > 0:
-            pattern = pattern[-phase_shift:] + pattern[:-phase_shift]
-
-        full_pattern = pattern * (T // cycle) + pattern[: T % cycle]
-        mask.append(full_pattern)
-
-    return torch.tensor(mask, dtype=torch.float32)
+    phases = torch.empty(dim).uniform_(0.0, phase_shift_max * 2 * math.pi)
+    return cycles, phases
 
 
 class RhythmALIFNode(ALIFNode):
+    """
+    ALIF neuron with rhythm modulation:
+    - fixed per-neuron cycle
+    - fixed per-neuron phase
+    - learnable per-neuron duty cycle via a constrained threshold
+
+    Gate construction:
+        gate(t) = sigmoid(sharpness * (cos(angle_t) - threshold))
+
+    where threshold is constrained to [-1, 1].
+    A duty cycle can be recovered by:
+        threshold = -cos(pi * duty_cycle)
+        duty_cycle = arccos(-threshold) / pi
+
+    Optional hard forward gate with straight-through gradients is supported.
+    """
+
     def __init__(
         self,
         input_dim,
@@ -414,16 +421,18 @@ class RhythmALIFNode(ALIFNode):
         tau_m_initial_std=5,
         tau_adp_initial=200,
         tau_adp_initial_std=50,
-        tau_initializer='normal',
+        tau_initializer="normal",
         dt=1,
         liquid=False,
         no_spiking=False,
         cycle_min=4,
         cycle_max=8,
+        phase_max=0.5,
+        gate_sharpness=10.0,
         duty_cycle_min=0.1,
         duty_cycle_max=0.9,
-        phase_max=0.5,
-        time_window=256,
+        hard_gate=False,
+        freeze_eta_with_gate=False,
     ):
         super().__init__(
             input_dim=input_dim,
@@ -441,23 +450,88 @@ class RhythmALIFNode(ALIFNode):
         )
 
         self.input_dim = input_dim
-        self.time_window = time_window
-        self.cycle_min = cycle_min
-        self.cycle_max = cycle_max
-        self.duty_cycle_min = duty_cycle_min
-        self.duty_cycle_max = duty_cycle_max
-        self.phase_max = phase_max
+        self.gate_sharpness = gate_sharpness
+        self.hard_gate = hard_gate
+        self.freeze_eta_with_gate = freeze_eta_with_gate
 
-        mask = create_general_mask(
+        # Fixed rhythm parameters
+        cycles, phases = create_cycle_phase_buffers(
             dim=input_dim,
             c_min=cycle_min,
             c_max=cycle_max,
-            min_dc=duty_cycle_min,
-            max_dc=duty_cycle_max,
             phase_shift_max=phase_max,
-            T=time_window,
         )
-        self.register_buffer("mask", mask)
+        self.register_buffer("cycles", cycles)
+        self.register_buffer("phases", phases)
+
+        # Learnable duty cycle through threshold:
+        # threshold = -cos(pi * dc), so threshold in [-1, 1]
+        init_dc = torch.empty(input_dim).uniform_(duty_cycle_min, duty_cycle_max)
+        init_threshold = -torch.cos(math.pi * init_dc)
+
+        # Store unconstrained parameter, map to [-1, 1] with tanh
+        init_threshold = init_threshold.clamp(-0.999, 0.999)
+        raw_threshold = 0.5 * torch.log((1 + init_threshold) / (1 - init_threshold))
+        self.raw_threshold = nn.Parameter(raw_threshold)
+
+    def get_threshold(self):
+        """
+        Returns constrained threshold in [-1, 1].
+        """
+        return torch.tanh(self.raw_threshold)
+
+    def get_duty_cycle(self):
+        """
+        Recover current learned duty cycle in (0, 1) from threshold.
+
+        threshold = -cos(pi * dc)
+        => dc = arccos(-threshold) / pi
+        """
+        threshold = self.get_threshold().clamp(-0.999999, 0.999999)
+        return torch.arccos(-threshold) / math.pi
+
+    def _compute_soft_gate(self, step, device=None, dtype=None):
+        """
+        Compute differentiable rhythm gate of shape [input_dim].
+
+        Uses cosine rhythm:
+            cos(2*pi*t/cycle + phase)
+        and compares it against learnable threshold.
+        """
+        if device is None:
+            device = self.cycles.device
+        if dtype is None:
+            dtype = self.cycles.dtype
+
+        t = torch.tensor(float(step), device=device, dtype=dtype)
+        cycles = self.cycles.to(device=device, dtype=dtype)
+        phases = self.phases.to(device=device, dtype=dtype)
+        threshold = self.get_threshold().to(device=device, dtype=dtype)
+
+        angle = 2.0 * math.pi * t / cycles + phases
+        cosine = torch.cos(angle)
+
+        soft_gate = torch.sigmoid(self.gate_sharpness * (cosine - threshold))
+        return soft_gate
+
+    def _compute_gate(self, step, device=None, dtype=None):
+        """
+        Returns gate of shape [input_dim].
+
+        If hard_gate=False:
+            returns soft differentiable gate in (0, 1)
+
+        If hard_gate=True:
+            returns hard forward gate with straight-through gradients
+        """
+        soft_gate = self._compute_soft_gate(step, device=device, dtype=dtype)
+
+        if not self.hard_gate:
+            return soft_gate
+
+        hard_gate = (soft_gate > 0.5).to(soft_gate.dtype)
+        gate = hard_gate.detach() - soft_gate.detach() + soft_gate
+        return gate
 
     def forward(self, x, step):
         if step == 0:
@@ -466,11 +540,8 @@ class RhythmALIFNode(ALIFNode):
             else:
                 self.neuro_states_init = False
 
-        # wrap around if sequence is longer than stored mask horizon
-        step_idx = int(step % self.time_window)
-
-        # shape: [batch, input_dim]
-        mask_t = self.mask[:, step_idx].unsqueeze(0).expand(x.size(0), -1).to(x.device)
+        gate = self._compute_gate(step, device=x.device, dtype=x.dtype)
+        gate_t = gate.unsqueeze(0).expand(x.size(0), -1)
 
         if self.liquid:
             if self.no_spiking:
@@ -481,30 +552,73 @@ class RhythmALIFNode(ALIFNode):
         else:
             alpha = self.alpha.sigmoid()
 
-        # save previous membrane so OFF neurons can be frozen
         prev_mem = self.mem
 
         if self.no_spiking:
             cand_mem = self.mem * alpha + (1 - alpha) * self.R_m * x
-            self.mem = torch.where(mask_t > 0, cand_mem, prev_mem)
+            self.mem = gate_t * cand_mem + (1 - gate_t) * prev_mem
             self.spike = None
+            return self.spike, self.mem
+
+        if self.liquid:
+            ro = torch.sigmoid(self.dense_tau_adp(torch.cat((x, self.eta), dim=-1)))
         else:
-            if self.liquid:
-                ro = torch.sigmoid(self.dense_tau_adp(torch.cat((x, self.eta), dim=-1)))
-            else:
-                ro = self.ro.sigmoid()
+            ro = self.ro.sigmoid()
 
-            # keep adaptation update same as ALIF
-            self.eta = ro * self.eta + (1 - ro) * self.spike
-            theta = self.b_0 + self.beta * self.eta
+        cand_eta = ro * self.eta + (1 - ro) * self.spike
+        if self.freeze_eta_with_gate:
+            self.eta = gate_t * cand_eta + (1 - gate_t) * self.eta
+        else:
+            self.eta = cand_eta
 
-            cand_mem = self.mem * alpha + (1 - alpha) * self.R_m * x - theta * self.spike * self.dt
-            self.mem = torch.where(mask_t > 0, cand_mem, prev_mem)
+        theta = self.b_0 + self.beta * self.eta
 
-            cand_spike = act_fun_adp(self.mem - theta)
-            self.spike = cand_spike * mask_t
+        cand_mem = self.mem * alpha + (1 - alpha) * self.R_m * x - theta * self.spike * self.dt
+        self.mem = gate_t * cand_mem + (1 - gate_t) * prev_mem
+
+        cand_spike = act_fun_adp(self.mem - theta)
+        self.spike = cand_spike * gate_t
 
         return self.spike, self.mem
+
+
+#utilities for training / logging
+def rhythm_duty_cycle_regularization(model, target=0.3, weight=1e-4):
+    """
+    Encourage learned duty cycles not to collapse to always-ON or always-OFF.
+
+    Example:
+        loss = main_loss + rhythm_duty_cycle_regularization(model, target=0.3, weight=1e-4)
+    """
+    reg = None
+    for module in model.modules():
+        if isinstance(module, RhythmALIFNode):
+            dc = module.get_duty_cycle()
+            term = ((dc.mean() - target) ** 2)
+            reg = term if reg is None else reg + term
+
+    if reg is None:
+        return 0.0
+    return weight * reg
+
+
+def collect_rhythm_stats(model):
+    """
+    Collect rhythm stats for logging.
+    """
+    stats = {}
+    idx = 0
+    for module in model.modules():
+        if isinstance(module, RhythmALIFNode):
+            dc = module.get_duty_cycle().detach()
+            thr = module.get_threshold().detach()
+            stats[f"rhythm_{idx}/dc_mean"] = dc.mean().item()
+            stats[f"rhythm_{idx}/dc_min"] = dc.min().item()
+            stats[f"rhythm_{idx}/dc_max"] = dc.max().item()
+            stats[f"rhythm_{idx}/thr_mean"] = thr.mean().item()
+            stats[f"rhythm_{idx}/cycle_mean"] = module.cycles.float().mean().item()
+            idx += 1
+    return stats
 
 
 class BaseNode(torch.nn.Module):
