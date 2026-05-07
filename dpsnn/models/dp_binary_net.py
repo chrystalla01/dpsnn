@@ -190,8 +190,8 @@ class StreamSpikeNet(pl.LightningModule):
     **self.alif_config,
     "cycle_min": 12,
     "cycle_max": 24,
-    "duty_cycle_min": 0.4,
-    "duty_cycle_max": 0.7,
+    "duty_cycle_min": 0.2,
+    "duty_cycle_max": 0.5,
     "phase_max": 0.5,
     "time_window": self.time_steps,
 })
@@ -329,9 +329,9 @@ class StreamSpikeNet(pl.LightningModule):
         readout_loss = torch.norm(readout_events, 1) / np.prod(readout_events.shape)
         # print(f"sisnr_loss: {sisnr_loss}, mse_loss: {mse_loss}")
 
-        loss = 0.001 * mse_loss + 100 + sisnr_loss + 0.001 * proj_loss + 0.001 * readout_loss
-        # loss = 0.001 * mse_loss + 100 + sisnr_loss
-        
+        #loss = 0.001 * mse_loss + 100 + sisnr_loss + 0.001 * proj_loss + 0.001 * readout_loss
+        loss = 0.001 * mse_loss + 100 + sisnr_loss + 0.05 * proj_loss + 0.02 * readout_loss
+        #loss = 0.001 * mse_loss + 100 + sisnr_loss + 0.05 * proj_loss + 0.05 * readout_loss
         gradient_norm = self.compute_gradient_norm()
 
         # Logging to TensorBoard by default
@@ -367,7 +367,7 @@ class StreamSpikeNet(pl.LightningModule):
         inputs, targets = batch
         _, y, _ = targets
         batch_size = y.shape[0]
-        out, _, _, _ = self.common_step(batch, batch_idx)
+        out, event_rates, _, _ = self.common_step(batch, batch_idx)
         y = torch.squeeze(y, dim=1)[:, self.context_dim*self.X:]
         sisnr_loss = singlesrc_neg_sisdr(out, y).mean()
         mse_loss = nn.MSELoss()(out, y)
@@ -384,6 +384,7 @@ class StreamSpikeNet(pl.LightningModule):
         # Logging to TensorBoard by default
         self.log("val_loss", loss, on_epoch=True, prog_bar=True, sync_dist=True, batch_size=batch_size)
         self.log("val_sisnr", sisnr_loss, on_epoch=True, prog_bar=True, sync_dist=True, batch_size=batch_size)
+        self.log("val_firing_rate", torch.mean(event_rates), on_epoch=True, prog_bar=True, sync_dist=True)
         # self.log("val_pesq", pesq_val, on_epoch=True, prog_bar=True, sync_dist=True, batch_size=batch_size)
         return loss
 
