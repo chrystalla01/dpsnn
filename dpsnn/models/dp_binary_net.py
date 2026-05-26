@@ -321,7 +321,8 @@ class StreamSpikeNet(pl.LightningModule):
         readout_loss = torch.norm(readout_events, 1) / np.prod(readout_events.shape)
         # print(f"sisnr_loss: {sisnr_loss}, mse_loss: {mse_loss}")
 
-        loss = 0.001 * mse_loss + 100 + sisnr_loss + 0.001 * proj_loss + 0.001 * readout_loss
+       # loss = 0.001 * mse_loss + 100 + sisnr_loss + 0.001 * proj_loss + 0.001 * readout_loss
+        loss = 0.001 * mse_loss + 100 + sisnr_loss + 0.05 * proj_loss + 0.02 * readout_loss
         # loss = 0.001 * mse_loss + 100 + sisnr_loss
         
         gradient_norm = self.compute_gradient_norm()
