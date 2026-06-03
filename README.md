@@ -503,9 +503,6 @@ If you use the rhythm modulation extension, also cite the neural oscillation / R
 }
 ```
 
-## License
-
-Add the license used by the original DPSNN repository and any additional license requirements for this modified project.
 
 ## Acknowledgements
 
