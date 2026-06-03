@@ -35,15 +35,15 @@ More specifically, this project compares:
 
 DPSNN is a spiking neural network for low-latency streaming speech enhancement. It follows an encoder-separator-decoder structure:
 
-1. Encoder  
+1. **Encoder**  
    Converts raw waveform frames into learned feature maps using convolutional filters. This replaces STFT and reduces algorithmic latency.
 
-2. Separator  
+2. **Separator**  
    Estimates a mask over the encoded representation. The separator contains:
    - SCNN modules for temporal context modeling.
    - SRNN modules for frequency-related recurrent modeling.
 
-3. Decoder  
+3. **Decoder**  
    Converts the masked encoded features back into enhanced waveform audio.
 
 The original DPSNN is designed for approximately 5 ms latency under the low-latency configuration.
@@ -52,25 +52,71 @@ The original DPSNN is designed for approximately 5 ms latency under the low-late
 
 Rhythm-DPSNN modifies selected spiking neurons using rhythm masks. Each rhythm neuron receives a periodic ON/OFF modulation signal controlled by:
 
-- cycle: the period length of the rhythm.
-- duty_cycle: the fraction of the cycle where the neuron is active.
-- phase: the temporal offset of the rhythm.
+- `cycle`: the period length of the rhythm.
+- `duty_cycle`: the fraction of the cycle where the neuron is active.
+- `phase`: the temporal offset of the rhythm.
 
 A simplified view of the modulation is:
 
-text ON state:     normal neuron update and spike generation  OFF state:     spike suppressed     membrane update optionally frozen 
+```text
+ON state:
+    normal neuron update and spike generation
+
+OFF state:
+    spike suppressed
+    membrane update optionally frozen
+```
 
 The rhythm mechanism is tested in two main places:
 
-1. SRNN rhythmization  
+1. **SRNN rhythmization**  
    Replaces ALIF neurons in the SRNN separator block with RhythmALIFNode.
 
-2. SCNN rhythmization  
+2. **SCNN rhythmization**  
    Replaces PLIF neurons in the SCNN separator block with RhythmPLIFNode.
 
 ## Repository Structure
 
-text . ├── audio_demos/ │   ├── vctk/ │   └── audio_demos_structure.txt │ ├── dpsnn/ │   ├── data/ │   │   ├── augment.py │   │   ├── data_utils.py │   │   ├── dnsmos.py │   │   ├── hdf5_prepare.py │   │   ├── metrics.py │   │   ├── sig_bak_ovr.onnx │   │   ├── voicebank_prepare.py │   │   └── wave_dataset2.py │   │ │   ├── layers/ │   │   ├── accelerating.py │   │   ├── sdr.py │   │   ├── sequential.py │   │   ├── spike_activations.py │   │   ├── spike_neuron.py │   │   ├── spike_neurons.py │   │   ├── srnn.py │   │   └── surrogate.py │   │ │   └── models/ │       └── dp_binary_net.py │ ├── egs/ │   └── voicebank/ │       ├── epoch=478-val_loss=81.5449-val_sisnr=-18.4556.ckpt │       ├── vctk_trainer.py │       └── vctk.yaml │ ├── figures/ ├── installation.txt └── README.md 
+```text
+.
+├── audio_demos/
+│   ├── vctk/
+│   └── audio_demos_structure.txt
+│
+├── dpsnn/
+│   ├── data/
+│   │   ├── augment.py
+│   │   ├── data_utils.py
+│   │   ├── dnsmos.py
+│   │   ├── hdf5_prepare.py
+│   │   ├── metrics.py
+│   │   ├── sig_bak_ovr.onnx
+│   │   ├── voicebank_prepare.py
+│   │   └── wave_dataset2.py
+│   │
+│   ├── layers/
+│   │   ├── accelerating.py
+│   │   ├── sdr.py
+│   │   ├── sequential.py
+│   │   ├── spike_activations.py
+│   │   ├── spike_neuron.py
+│   │   ├── spike_neurons.py
+│   │   ├── srnn.py
+│   │   └── surrogate.py
+│   │
+│   └── models/
+│       └── dp_binary_net.py
+│
+├── egs/
+│   └── voicebank/
+│       ├── epoch=478-val_loss=81.5449-val_sisnr=-18.4556.ckpt
+│       ├── vctk_trainer.py
+│       └── vctk.yaml
+│
+├── figures/
+├── installation.txt
+└── README.md
+```
 
 ## Important Branch Note
 
@@ -78,16 +124,19 @@ This project uses Git branches to separate experimental variants rather than kee
 
 Each experimental branch modifies the relevant model or neuron implementation for one specific experiment. The main files affected across branches are usually:
 
-- dpsnn/models/dp_binary_net.py
-- dpsnn/layers/spike_neurons.py
+- `dpsnn/models/dp_binary_net.py`
+- `dpsnn/layers/spike_neurons.py`
 
-The file dpsnn/layers/spike_neuron.py was not modified for the rhythm experiments.
+The file `dpsnn/layers/spike_neuron.py` was not modified for the rhythm experiments.
 
 Before running an experiment, make sure you are on the correct branch:
 
-bash git branch git checkout <branch-name> 
+```bash
+git branch
+git checkout <branch-name>
+```
 
-The active architecture is determined by the code in the currently checked-out branch, especially the model and neuron definitions imported by egs/voicebank/vctk_trainer.py.
+The active architecture is determined by the code in the currently checked-out branch, especially the model and neuron definitions imported by `egs/voicebank/vctk_trainer.py`.
 
 ## Experimental Branches
 
@@ -107,9 +156,17 @@ This branch-based organization makes it easier to compare experiments without mi
 
 ## Installation
 
-Follow the setup in installation.txt.
+Follow the setup in `installation.txt`.
 
-bash conda create --name dpsnn python=3.11.5 conda activate dpsnn  conda install pytorch-cuda==11.8 pytorch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 -c pytorch -c nvidia pip install -r requirements.txt  pip install --editable . 
+```bash
+conda create --name dpsnn python=3.11.5
+conda activate dpsnn
+
+conda install pytorch-cuda==11.8 pytorch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 -c pytorch -c nvidia
+pip install -r requirements.txt
+
+pip install --editable .
+```
 
 ## Dataset
 
@@ -117,41 +174,85 @@ The main dataset used in this project is VoiceBank+VCTK.
 
 The configuration file is located at:
 
-text egs/voicebank/vctk.yaml 
+```text
+egs/voicebank/vctk.yaml
+```
 
 The default dataset path in the config is:
 
-yaml data_folder: ./voicebank 
+```yaml
+data_folder: ./voicebank
+```
 
 The expected generated files are:
 
-yaml csv_train: ${save_folder}/train.csv csv_valid: ${save_folder}/valid.csv csv_test: ${save_folder}/test.csv  hdf5_train: ${save_folder}/train.hdf5 hdf5_valid: ${save_folder}/valid.hdf5 hdf5_test: ${save_folder}/test.hdf5 
+```yaml
+csv_train: ${save_folder}/train.csv
+csv_valid: ${save_folder}/valid.csv
+csv_test: ${save_folder}/test.csv
+
+hdf5_train: ${save_folder}/train.hdf5
+hdf5_valid: ${save_folder}/valid.hdf5
+hdf5_test: ${save_folder}/test.hdf5
+```
 
 The default output and save folders are:
 
-yaml output_folder: ${data_folder}/results save_folder: ${output_folder}/save 
+```yaml
+output_folder: ${data_folder}/results
+save_folder: ${output_folder}/save
+```
 
-Update the dataset paths inside egs/voicebank/vctk.yaml before training.
+Update the dataset paths inside `egs/voicebank/vctk.yaml` before training.
 
 ## Training
 
 Move into the VoiceBank experiment folder:
 
-bash cd egs/voicebank 
+```bash
+cd egs/voicebank
+```
 
 ### Train Plain DPSNN Baseline
 
-bash python -u vctk_trainer.py \   --config vctk.yaml \   -L 80 \   --stride 40 \   -N 256 \   -B 256 \   -H 256 \   --context_dur 0.01 \   --max_epochs 500 \   -X 1 \   --lr 1e-2 
+```bash
+python -u vctk_trainer.py \
+  --config vctk.yaml \
+  -L 80 \
+  --stride 40 \
+  -N 256 \
+  -B 256 \
+  -H 256 \
+  --context_dur 0.01 \
+  --max_epochs 500 \
+  -X 1 \
+  --lr 1e-2
+```
 
 ### Train Rhythm-DPSNN
 
 Switch to the correct rhythm branch first:
 
-bash git checkout <rhythm-branch-name> cd egs/voicebank 
+```bash
+git checkout <rhythm-branch-name>
+cd egs/voicebank
+```
 
 Then run the training command:
 
-bash python -u vctk_trainer.py \   --config vctk.yaml \   -L 80 \   --stride 40 \   -N 256 \   -B 256 \   -H 256 \   --context_dur 0.01 \   --max_epochs 500 \   -X 1 \   --lr 5e-3 
+```bash
+python -u vctk_trainer.py \
+  --config vctk.yaml \
+  -L 80 \
+  --stride 40 \
+  -N 256 \
+  -B 256 \
+  -H 256 \
+  --context_dur 0.01 \
+  --max_epochs 500 \
+  -X 1 \
+  --lr 5e-3
+```
 
 The exact rhythm behavior depends on the checked-out branch. For example, one branch may rhythmize the SRNN ALIF neurons while another may rhythmize the SCNN PLIF neurons.
 
@@ -159,15 +260,35 @@ The exact rhythm behavior depends on the checked-out branch. For example, one br
 
 The default VoiceBank config includes:
 
-yaml sample_rate: 16000 frame_dur: 1.0 context_dur: 0.01 delay_dur: 0.00 max_frames: 5 batch_size: 1024 num_workers: 1 
+```yaml
+sample_rate: 16000
+frame_dur: 1.0
+context_dur: 0.01
+delay_dur: 0.00
+max_frames: 5
+batch_size: 1024
+num_workers: 1
+```
 
 The trainer section includes:
 
-yaml trainer:   max_epochs: 1   num_nodes: 1   accelerator: gpu   limit_train_batches: 0.01   devices: 1 
+```yaml
+trainer:
+  max_epochs: 1
+  num_nodes: 1
+  accelerator: gpu
+  limit_train_batches: 0.01
+  devices: 1
+```
 
 The optimizer section includes:
 
-yaml optim:   name: adam   lr: 1e-2   T_max: 64 
+```yaml
+optim:
+  name: adam
+  lr: 1e-2
+  T_max: 64
+```
 
 For full training, change the trainer settings as needed. The uploaded config uses a limited training setup, which is useful for debugging but not for final model quality.
 
@@ -175,11 +296,30 @@ For full training, change the trainer settings as needed. The uploaded config us
 
 To evaluate a trained checkpoint:
 
-bash python -u vctk_trainer.py \   --config vctk.yaml \   -L 80 \   --stride 40 \   -N 256 \   -B 256 \   -H 256 \   --context_dur 0.01 \   --max_epochs 500 \   -X 1 \   --lr 1e-2 \   --test_ckpt_path ./epoch=478-val_loss=81.5449-val_sisnr=-18.4556.ckpt 
+```bash
+python -u vctk_trainer.py \
+  --config vctk.yaml \
+  -L 80 \
+  --stride 40 \
+  -N 256 \
+  -B 256 \
+  -H 256 \
+  --context_dur 0.01 \
+  --max_epochs 500 \
+  -X 1 \
+  --lr 1e-2 \
+  --test_ckpt_path ./epoch=478-val_loss=81.5449-val_sisnr=-18.4556.ckpt
+```
 
 The checkpoint naming format is controlled by:
 
-yaml checkpoint:   monitor: 'val_loss'   save_top_k: 3   save_last: True   filename: '{epoch}-{val_loss:.4f}-{val_sisnr:.4f}' 
+```yaml
+checkpoint:
+  monitor: 'val_loss'
+  save_top_k: 3
+  save_last: True
+  filename: '{epoch}-{val_loss:.4f}-{val_sisnr:.4f}'
+```
 
 ## Evaluation Metrics
 
@@ -233,7 +373,14 @@ Unchanged components:
 
 Rhythm behavior:
 
-text ON state:     normal ALIF update  OFF state:     membrane frozen     spike forced to 0 
+```text
+ON state:
+    normal ALIF update
+
+OFF state:
+    membrane frozen
+    spike forced to 0
+```
 
 Several rhythm assignment strategies were tested:
 
@@ -289,13 +436,23 @@ The main findings from the experiments are:
 
 Audio examples are stored in:
 
-text audio_demos/ 
+```text
+audio_demos/
+```
 
 The audio demos are kept in the same format as the original DPSNN project.
 
 Suggested organization:
 
-text audio_demos/ ├── vctk/ │   ├── noisy/ │   ├── clean/ │   ├── baseline_dpsnn/ │   └── rhythm_dpsnn/ └── audio_demos_structure.txt 
+```text
+audio_demos/
+├── vctk/
+│   ├── noisy/
+│   ├── clean/
+│   ├── baseline_dpsnn/
+│   └── rhythm_dpsnn/
+└── audio_demos_structure.txt
+```
 
 ## Reproducibility Notes
 
@@ -311,17 +468,44 @@ For fair comparison across branches:
 
 Recommended logging:
 
-bash git branch --show-current git rev-parse HEAD 
+```bash
+git branch --show-current
+git rev-parse HEAD
+```
 
 ## Citation
 
 If you use the original DPSNN code or model in an academic context, cite:
 
-bibtex @article{sun2024dpsnn,   title={DPSNN: spiking neural network for low-latency streaming speech enhancement},   author={Sun, Tao and Boht{\'e}, Sander},   journal={Neuromorphic Computing and Engineering},   volume={4},   number={4},   pages={044008},   year={2024},   publisher={IOP Publishing} } 
+```bibtex
+@article{sun2024dpsnn,
+  title={DPSNN: spiking neural network for low-latency streaming speech enhancement},
+  author={Sun, Tao and Boht{\'e}, Sander},
+  journal={Neuromorphic Computing and Engineering},
+  volume={4},
+  number={4},
+  pages={044008},
+  year={2024},
+  publisher={IOP Publishing}
+}
+```
 
 If you use the rhythm modulation extension, also cite the neural oscillation / Rhythm-SNN work that inspired the modification:
 
-bibtex @article{yan2025efficient,   title={Efficient and robust temporal processing with neural oscillations modulated spiking neural networks},   author={Yan, Yinsong and Yang, Qu and Wu, Yujie and Liu, Hanwen and Zhang, Malu and Li, Haizhou and Tan, Kay Chen and Wu, Jibin},   journal={Nature Communications},   volume={16},   pages={8651},   year={2025} } 
+```bibtex
+@article{yan2025efficient,
+  title={Efficient and robust temporal processing with neural oscillations modulated spiking neural networks},
+  author={Yan, Yinsong and Yang, Qu and Wu, Yujie and Liu, Hanwen and Zhang, Malu and Li, Haizhou and Tan, Kay Chen and Wu, Jibin},
+  journal={Nature Communications},
+  volume={16},
+  pages={8651},
+  year={2025}
+}
+```
+
+## License
+
+Add the license used by the original DPSNN repository and any additional license requirements for this modified project.
 
 ## Acknowledgements
 
